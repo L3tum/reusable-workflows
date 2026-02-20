@@ -25,12 +25,6 @@ on:
         required: false
         default: ""
 
-      # Runner label (you said ubuntu-latest works on both)
-      runner:
-        type: string
-        required: false
-        default: ubuntu-latest
-
     secrets:
       # Internal (Forgejo) registry login
       PACKAGE_TOKEN:
@@ -50,7 +44,7 @@ on:
 jobs:
   publish_forgejo:
     name: Publish to internal Forgejo registry
-    runs-on: ${{ inputs.runner }}
+    runs-on: ubuntu-latest
 
     # Your original intent: only on published release AND not GitHub
     if: >
@@ -127,7 +121,7 @@ jobs:
 
   publish_public:
     name: Publish to public Docker registry
-    runs-on: ${{ inputs.runner }}
+    runs-on: ubuntu-latest
 
     # Same trigger as the Forgejo job by default: published release only.
     # If you want branch/tag pushes too, tell me and I’ll adjust conditions & tags.
