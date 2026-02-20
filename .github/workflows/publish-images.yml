@@ -25,22 +25,6 @@ on:
         required: false
         default: ""
 
-    secrets:
-      # Internal (Forgejo) registry login
-      PACKAGE_TOKEN:
-        required: false
-
-      # Public registry login (optional if you only push Forgejo)
-      PUBLIC_DOCKER_USERNAME:
-        required: false
-      PUBLIC_DOCKER_PASSWORD:
-        required: false
-
-      # Optional: if your public registry requires a custom registry hostname
-      # (for Docker Hub you can leave PUBLIC_DOCKER_REGISTRY empty)
-      PUBLIC_DOCKER_REGISTRY:
-        required: false
-
 jobs:
   publish_forgejo:
     name: Publish to internal Forgejo registry
