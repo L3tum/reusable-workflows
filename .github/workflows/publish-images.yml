@@ -1,41 +1,12 @@
-name: Publish Container Images
+name: Publish To Forgejo
 
 on:
-  workflow_call:
-    inputs:
-      # Turn jobs on/off independently
-      publish_forgejo:
-        type: boolean
-        required: false
-        default: true
-      publish_public:
-        type: boolean
-        required: false
-        default: false
-
-      # When to push "latest" on branch builds
-      latest_branch:
-        type: string
-        required: false
-        default: master
-
-      # Which tag to publish for release events (defaults to the release tag)
-      release_tag:
-        type: string
-        required: false
-        default: ""
+  workflow_call: ~
 
 jobs:
   publish_forgejo:
     name: Publish to internal Forgejo registry
     runs-on: ubuntu-latest
-
-    # Your original intent: only on published release AND not GitHub
-    if: >
-      inputs.publish_forgejo &&
-      github.event_name == 'release' &&
-      github.event.action == 'published' &&
-      github.server_url != 'https://github.com'
 
     steps:
       - name: Checkout
@@ -93,94 +64,6 @@ jobs:
           echo "$TOKEN" | docker login "$INTERNAL_REGISTRY" -u "$INTERNAL_USER" --password-stdin
 
       - name: Push to internal Forgejo registry
-        shell: bash
-        run: |
-          set -euo pipefail
-          image="${{ steps.image.outputs.image }}"
-          tag="${{ steps.image.outputs.tag }}"
-
-          docker push "${image}:${tag}"
-          docker push "${image}:latest"
-
-
-  publish_public:
-    name: Publish to public Docker registry
-    runs-on: ubuntu-latest
-
-    # Same trigger as the Forgejo job by default: published release only.
-    # If you want branch/tag pushes too, tell me and I’ll adjust conditions & tags.
-    if: >
-      inputs.publish_public &&
-      github.event_name == 'release' &&
-      github.event.action == 'published'
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Derive public image coordinates
-        id: image
-        shell: bash
-        env:
-          REPOSITORY: ${{ github.repository }}
-          REF_NAME: ${{ github.ref_name }}
-          PUBLIC_REGISTRY: ${{ secrets.PUBLIC_DOCKER_REGISTRY }}
-        run: |
-          set -euo pipefail
-
-          # If PUBLIC_DOCKER_REGISTRY is empty, assume Docker Hub-style (no registry prefix).
-          # Otherwise produce <registry>/<owner>/<repo>.
-          registry="$PUBLIC_REGISTRY"
-          registry="${registry#https://}"
-          registry="${registry#http://}"
-          registry="${registry%/}"
-
-          if [ -n "$registry" ]; then
-            image="$registry/$REPOSITORY"
-          else
-            # Docker Hub: image coordinates are <owner>/<repo>
-            image="$REPOSITORY"
-          fi
-
-          tag="$REF_NAME"
-          if [ -n "${{ inputs.release_tag }}" ]; then
-            tag="${{ inputs.release_tag }}"
-          fi
-
-          echo "registry=$registry" >> "$GITHUB_OUTPUT"
-          echo "image=$image" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-
-      - name: Build image (release + latest)
-        shell: bash
-        run: |
-          set -euo pipefail
-          image="${{ steps.image.outputs.image }}"
-          tag="${{ steps.image.outputs.tag }}"
-
-          docker build \
-            -t "${image}:${tag}" \
-            -t "${image}:latest" \
-            .
-
-      - name: Login to public Docker registry
-        shell: bash
-        env:
-          REGISTRY: ${{ secrets.PUBLIC_DOCKER_REGISTRY }}
-          USERNAME: ${{ secrets.PUBLIC_DOCKER_USERNAME }}
-          PASSWORD: ${{ secrets.PUBLIC_DOCKER_PASSWORD }}
-        run: |
-          set -euo pipefail
-
-          # Docker Hub login uses empty registry (or "docker.io"); docker accepts either.
-          # If you use GHCR, set PUBLIC_DOCKER_REGISTRY=ghcr.io.
-          if [ -n "$REGISTRY" ]; then
-            echo "$PASSWORD" | docker login "$REGISTRY" -u "$USERNAME" --password-stdin
-          else
-            echo "$PASSWORD" | docker login -u "$USERNAME" --password-stdin
-          fi
-
-      - name: Push to public Docker registry
         shell: bash
         run: |
           set -euo pipefail
