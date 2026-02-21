@@ -58,10 +58,9 @@ jobs:
         env:
           INTERNAL_REGISTRY: ${{ vars.INTERNAL_DOCKER_REGISTRY }}
           INTERNAL_USER: ${{ vars.INTERNAL_DOCKER_USERNAME }}
-          TOKEN: ${{ secrets.PACKAGE_TOKEN }}
         run: |
           set -euo pipefail
-          echo "$TOKEN" | docker login "$INTERNAL_REGISTRY" -u "$INTERNAL_USER" --password-stdin
+          echo "${{ secrets.PACKAGE_TOKEN }}" | docker login "$INTERNAL_REGISTRY" -u "$INTERNAL_USER" --password-stdin
 
       - name: Push to internal Forgejo registry
         shell: bash
