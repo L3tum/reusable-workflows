@@ -1,7 +1,12 @@
 name: Publish To Forgejo
 
 on:
-  workflow_call: ~
+  workflow_call:
+    inputs:
+      PACKAGE_TOKEN:
+        description: 'Token for registry'
+        required: true
+        type: string
 
 jobs:
   publish_forgejo:
@@ -60,7 +65,7 @@ jobs:
           INTERNAL_USER: ${{ vars.INTERNAL_DOCKER_USERNAME }}
         run: |
           set -euo pipefail
-          echo "${{ secrets.PACKAGE_TOKEN }}" | docker login "$INTERNAL_REGISTRY" -u "$INTERNAL_USER" --password-stdin
+          echo "${{ inputs.PACKAGE_TOKEN }}" | docker login "$INTERNAL_REGISTRY" -u "$INTERNAL_USER" --password-stdin
 
       - name: Push to internal Forgejo registry
         shell: bash
