@@ -3,10 +3,20 @@ name: Publish To Forgejo
 on:
   workflow_call:
     inputs:
-      PACKAGE_TOKEN:
-        description: 'Token for registry'
-        required: true
+      SUBDIRECTORY:
+        description: "Subdirectory containing Dockerfile/build context"
+        required: false
         type: string
+        default: ""
+      RELEASE_TAG:
+        description: "Optional tag override"
+        required: false
+        type: string
+        default: ""
+    secrets:
+      PACKAGE_TOKEN:
+        description: "Token for registry"
+        required: true
 
 jobs:
   publish_forgejo:
@@ -25,26 +35,46 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           INTERNAL_REGISTRY: ${{ vars.INTERNAL_DOCKER_REGISTRY }}
           REF_NAME: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.RELEASE_TAG }}
         run: |
           set -euo pipefail
 
-          # Internal registry host (strip scheme if provided)
           registry="$INTERNAL_REGISTRY"
           registry="${registry#https://}"
           registry="${registry#http://}"
 
-          # For internal publishing, always use internal registry
           image="$registry/${REPOSITORY,,}"
 
-          # Tag to publish for releases
           tag="$REF_NAME"
-          if [ -n "${{ inputs.release_tag }}" ]; then
-            tag="${{ inputs.release_tag }}"
+          if [ -n "$RELEASE_TAG" ]; then
+            tag="$RELEASE_TAG"
           fi
 
           echo "registry=$registry" >> "$GITHUB_OUTPUT"
           echo "image=$image" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Derive docker build paths
+        id: build
+        shell: bash
+        env:
+          SUBDIRECTORY: ${{ inputs.SUBDIRECTORY }}
+        run: |
+          set -euo pipefail
+
+          subdir="${SUBDIRECTORY#/}"
+          subdir="${subdir%/}"
+
+          if [ -z "$subdir" ]; then
+            context="."
+            dockerfile="./Dockerfile"
+          else
+            context="./$subdir"
+            dockerfile="./$subdir/Dockerfile"
+          fi
+
+          echo "context=$context" >> "$GITHUB_OUTPUT"
+          echo "dockerfile=$dockerfile" >> "$GITHUB_OUTPUT"
 
       - name: Build image (release + latest)
         shell: bash
@@ -52,11 +82,14 @@ jobs:
           set -euo pipefail
           image="${{ steps.image.outputs.image }}"
           tag="${{ steps.image.outputs.tag }}"
+          context="${{ steps.build.outputs.context }}"
+          dockerfile="${{ steps.build.outputs.dockerfile }}"
 
           docker build \
+            -f "$dockerfile" \
             -t "${image}:${tag}" \
             -t "${image}:latest" \
-            .
+            "$context"
 
       - name: Login to internal Forgejo registry
         shell: bash
