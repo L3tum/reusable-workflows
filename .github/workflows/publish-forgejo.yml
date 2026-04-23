@@ -86,6 +86,7 @@ jobs:
           dockerfile="${{ steps.build.outputs.dockerfile }}"
 
           docker build \
+            --no-cache \
             -f "$dockerfile" \
             -t "${image}:${tag}" \
             -t "${image}:latest" \
