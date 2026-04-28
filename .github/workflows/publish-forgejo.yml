@@ -13,7 +13,6 @@ on:
         required: false
         type: string
         default: ""
-    secrets:
       PACKAGE_TOKEN:
         description: "Token for registry"
         required: true
