@@ -13,6 +13,11 @@ on:
         required: false
         type: string
         default: ""
+      BUILD_ARGS_JSON:
+        description: "Optional Docker build args as JSON object"
+        required: false
+        type: string
+        default: "{}"
 
 jobs:
   publish_forgejo:
@@ -74,15 +79,40 @@ jobs:
 
       - name: Build image (release + latest)
         shell: bash
+        env:
+          BUILD_ARGS_JSON: ${{ inputs.BUILD_ARGS_JSON }}
         run: |
           set -euo pipefail
+
           image="${{ steps.image.outputs.image }}"
           tag="${{ steps.image.outputs.tag }}"
           context="${{ steps.build.outputs.context }}"
           dockerfile="${{ steps.build.outputs.dockerfile }}"
 
+          build_args=()
+
+          if [ -n "$BUILD_ARGS_JSON" ] && [ "$BUILD_ARGS_JSON" != "{}" ]; then
+            echo "$BUILD_ARGS_JSON" | jq -e 'type == "object"' >/dev/null
+
+            while IFS= read -r item; do
+              key="$(echo "$item" | jq -r '.key')"
+              value="$(echo "$item" | jq -r '.value')"
+
+              if ! [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+                echo "Invalid build arg name: $key" >&2
+                exit 1
+              fi
+
+              build_args+=(--build-arg "$key=$value")
+            done < <(
+              echo "$BUILD_ARGS_JSON" |
+                jq -c 'to_entries[] | {key: .key, value: (.value | tostring)}'
+            )
+          fi
+
           docker build \
             --no-cache \
+            "${build_args[@]}" \
             -f "$dockerfile" \
             -t "${image}:${tag}" \
             -t "${image}:latest" \
