@@ -8,6 +8,11 @@ on:
         required: false
         type: string
         default: ""
+      DOCKERFILE:
+        description: "Path to Dockerfile relative to repo root (overrides SUBDIRECTORY for Dockerfile only)"
+        required: false
+        type: string
+        default: ""
       RELEASE_TAG:
         description: "Optional tag override"
         required: false
@@ -60,18 +65,28 @@ jobs:
         shell: bash
         env:
           SUBDIRECTORY: ${{ inputs.SUBDIRECTORY }}
+          DOCKERFILE: ${{ inputs.DOCKERFILE }}
         run: |
           set -euo pipefail
 
           subdir="${SUBDIRECTORY#/}"
           subdir="${subdir%/}"
+          dockerfile="${DOCKERFILE#/}"
+          dockerfile="${dockerfile%/}"
 
           if [ -z "$subdir" ]; then
             context="."
-            dockerfile="./Dockerfile"
           else
             context="./$subdir"
+          fi
+
+          if [ -n "$dockerfile" ]; then
+            # Explicit DOCKERFILE input overrides everything
+            dockerfile="./$dockerfile"
+          elif [ -n "$subdir" ]; then
             dockerfile="./$subdir/Dockerfile"
+          else
+            dockerfile="./Dockerfile"
           fi
 
           echo "context=$context" >> "$GITHUB_OUTPUT"
