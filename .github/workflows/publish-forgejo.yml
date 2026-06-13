@@ -23,6 +23,11 @@ on:
         required: false
         type: string
         default: "{}"
+      PUSH_LATEST:
+        description: "Also tag and push the image as :latest"
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   publish_forgejo:
@@ -81,7 +86,6 @@ jobs:
           fi
 
           if [ -n "$dockerfile" ]; then
-            # Explicit DOCKERFILE input overrides everything
             dockerfile="./$dockerfile"
           elif [ -n "$subdir" ]; then
             dockerfile="./$subdir/Dockerfile"
@@ -92,10 +96,11 @@ jobs:
           echo "context=$context" >> "$GITHUB_OUTPUT"
           echo "dockerfile=$dockerfile" >> "$GITHUB_OUTPUT"
 
-      - name: Build image (release + latest)
+      - name: Build image
         shell: bash
         env:
           BUILD_ARGS_JSON: ${{ inputs.BUILD_ARGS_JSON }}
+          PUSH_LATEST: ${{ inputs.PUSH_LATEST }}
         run: |
           set -euo pipefail
 
@@ -105,6 +110,11 @@ jobs:
           dockerfile="${{ steps.build.outputs.dockerfile }}"
 
           build_args=()
+          tags=(-t "${image}:${tag}")
+
+          if [ "$PUSH_LATEST" = "true" ]; then
+            tags+=(-t "${image}:latest")
+          fi
 
           if [ -n "$BUILD_ARGS_JSON" ] && [ "$BUILD_ARGS_JSON" != "{}" ]; then
             echo "$BUILD_ARGS_JSON" | jq -e 'type == "object"' >/dev/null
@@ -129,8 +139,7 @@ jobs:
             --no-cache \
             "${build_args[@]}" \
             -f "$dockerfile" \
-            -t "${image}:${tag}" \
-            -t "${image}:latest" \
+            "${tags[@]}" \
             "$context"
 
       - name: Login to internal Forgejo registry
@@ -144,10 +153,16 @@ jobs:
 
       - name: Push to internal Forgejo registry
         shell: bash
+        env:
+          PUSH_LATEST: ${{ inputs.PUSH_LATEST }}
         run: |
           set -euo pipefail
+
           image="${{ steps.image.outputs.image }}"
           tag="${{ steps.image.outputs.tag }}"
 
           docker push "${image}:${tag}"
-          docker push "${image}:latest"
+
+          if [ "$PUSH_LATEST" = "true" ]; then
+            docker push "${image}:latest"
+          fi
