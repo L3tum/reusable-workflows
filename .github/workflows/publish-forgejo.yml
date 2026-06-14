@@ -28,6 +28,11 @@ on:
         required: false
         type: boolean
         default: true
+      PUSH:
+        description: "Push images or only build"
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   publish_forgejo:
@@ -147,22 +152,28 @@ jobs:
         env:
           INTERNAL_REGISTRY: ${{ vars.INTERNAL_DOCKER_REGISTRY }}
           INTERNAL_USER: ${{ vars.INTERNAL_DOCKER_USERNAME }}
+          PUSH: ${{ inputs.PUSH }}
         run: |
           set -euo pipefail
-          echo "${{ secrets.PACKAGE_TOKEN }}" | docker login "$INTERNAL_REGISTRY" -u "$INTERNAL_USER" --password-stdin
+          if [ "$PUSH" = "true" ]; then
+            echo "${{ secrets.PACKAGE_TOKEN }}" | docker login "$INTERNAL_REGISTRY" -u "$INTERNAL_USER" --password-stdin
+          fi
 
       - name: Push to internal Forgejo registry
         shell: bash
         env:
           PUSH_LATEST: ${{ inputs.PUSH_LATEST }}
+          PUSH: ${{ inputs.PUSH }}
         run: |
           set -euo pipefail
 
-          image="${{ steps.image.outputs.image }}"
-          tag="${{ steps.image.outputs.tag }}"
-
-          docker push "${image}:${tag}"
-
-          if [ "$PUSH_LATEST" = "true" ]; then
-            docker push "${image}:latest"
+          if [ "$PUSH" = "true" ]; then
+            image="${{ steps.image.outputs.image }}"
+            tag="${{ steps.image.outputs.tag }}"
+  
+            docker push "${image}:${tag}"
+  
+            if [ "$PUSH_LATEST" = "true" ]; then
+              docker push "${image}:latest"
+            fi
           fi
