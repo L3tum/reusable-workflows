@@ -1,0 +1,149 @@
+name: Publish To GitHub Container Registry
+
+on:
+  workflow_call:
+    inputs:
+      SUBDIRECTORY:
+        description: "Subdirectory containing Dockerfile/build context"
+        required: false
+        type: string
+        default: ""
+      DOCKERFILE:
+        description: "Path to Dockerfile relative to repo root (overrides SUBDIRECTORY for Dockerfile only)"
+        required: false
+        type: string
+        default: ""
+      RELEASE_TAG:
+        description: "Optional tag override"
+        required: false
+        type: string
+        default: ""
+      BUILD_ARGS_JSON:
+        description: "Optional Docker build args as JSON object"
+        required: false
+        type: string
+        default: "{}"
+      PUSH_LATEST:
+        description: "Also tag and push the image as :latest"
+        required: false
+        type: boolean
+        default: true
+      PUSH:
+        description: "Push images or only build"
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  publish_ghcr:
+    name: Publish to ghcr.io
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive ghcr.io image coordinates
+        id: image
+        shell: bash
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REF_NAME: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.RELEASE_TAG }}
+        run: |
+          set -euo pipefail
+          registry="ghcr.io"
+          image="${registry}/${REPOSITORY,,}"
+          tag="$REF_NAME"
+          if [ -n "$RELEASE_TAG" ]; then
+            tag="$RELEASE_TAG"
+          fi
+          echo "registry=$registry" >> "$GITHUB_OUTPUT"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Derive docker build paths
+        id: build
+        shell: bash
+        env:
+          SUBDIRECTORY: ${{ inputs.SUBDIRECTORY }}
+          DOCKERFILE: ${{ inputs.DOCKERFILE }}
+        run: |
+          set -euo pipefail
+          subdir="${SUBDIRECTORY#/}"
+          subdir="${subdir%/}"
+          dockerfile="${DOCKERFILE#/}"
+          dockerfile="${dockerfile%/}"
+          if [ -z "$subdir" ]; then
+            context="."
+          else
+            context="./$subdir"
+          fi
+          if [ -n "$dockerfile" ]; then
+            dockerfile="./$dockerfile"
+          elif [ -n "$subdir" ]; then
+            dockerfile="./$subdir/Dockerfile"
+          else
+            dockerfile="./Dockerfile"
+          fi
+          echo "context=$context" >> "$GITHUB_OUTPUT"
+          echo "dockerfile=$dockerfile" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        shell: bash
+        env:
+          BUILD_ARGS_JSON: ${{ inputs.BUILD_ARGS_JSON }}
+          PUSH_LATEST: ${{ inputs.PUSH_LATEST }}
+        run: |
+          set -euo pipefail
+          image="${{ steps.image.outputs.image }}"
+          tag="${{ steps.image.outputs.tag }}"
+          context="${{ steps.build.outputs.context }}"
+          dockerfile="${{ steps.build.outputs.dockerfile }}"
+          build_args=()
+          tags=(-t "${image}:${tag}")
+          if [ "$PUSH_LATEST" = "true" ]; then
+            tags+=(-t "${image}:latest")
+          fi
+          if [ -n "$BUILD_ARGS_JSON" ] && [ "$BUILD_ARGS_JSON" != "{}" ]; then
+            echo "$BUILD_ARGS_JSON" | jq -e 'type == "object"' >/dev/null
+            while IFS= read -r item; do
+              key="$(echo "$item" | jq -r '.key')"
+              value="$(echo "$item" | jq -r '.value')"
+              if ! [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+                echo "Invalid build arg name: $key" >&2
+                exit 1
+              fi
+              build_args+=(--build-arg "$key=$value")
+            done < <(
+              echo "$BUILD_ARGS_JSON" |
+                jq -c 'to_entries[] | {key: .key, value: (.value | tostring)}'
+            )
+          fi
+          docker build \
+            --no-cache \
+            "${build_args[@]}" \
+            -f "$dockerfile" \
+            "${tags[@]}" \
+            "$context"
+
+      - name: Login to ghcr.io
+        if: ${{ inputs.PUSH == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Push to ghcr.io
+        if: ${{ inputs.PUSH == 'true' }}
+        shell: bash
+        env:
+          PUSH_LATEST: ${{ inputs.PUSH_LATEST }}
+        run: |
+          set -euo pipefail
+          image="${{ steps.image.outputs.image }}"
+          tag="${{ steps.image.outputs.tag }}"
+          docker push "${image}:${tag}"
+          if [ "$PUSH_LATEST" = "true" ]; then
+            docker push "${image}:latest"
+          fi
