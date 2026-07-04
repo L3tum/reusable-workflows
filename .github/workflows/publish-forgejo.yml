@@ -66,6 +66,10 @@ jobs:
             tag="$RELEASE_TAG"
           fi
 
+          echo "registry=$registry"
+          echo "image=$image"
+          echo "tag=$tag"
+          
           echo "registry=$registry" >> "$GITHUB_OUTPUT"
           echo "image=$image" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
@@ -157,6 +161,8 @@ jobs:
           set -euo pipefail
           if [ "$PUSH" = "true" ]; then
             echo "${{ secrets.PACKAGE_TOKEN }}" | docker login "$INTERNAL_REGISTRY" -u "$INTERNAL_USER" --password-stdin
+          else
+            echo "Skipping docker login due to PUSH=$PUSH"
           fi
 
       - name: Push to internal Forgejo registry
@@ -175,5 +181,9 @@ jobs:
   
             if [ "$PUSH_LATEST" = "true" ]; then
               docker push "${image}:latest"
+            else
+              echo "Skipping docker push:latest due to PUSH_LATEST=$PUSH_LATEST"
             fi
+          else
+            echo "Skipping docker push due to PUSH=$PUSH"
           fi
