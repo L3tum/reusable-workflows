@@ -46,8 +46,9 @@ jobs:
                 fi
 
                 # no published host ports
-                offenders=$(yq e '.services // {} | to_entries[] | select(.value.ports != null and (.value.ports | length) > 0) | .key' "$f")
-                if [ -n "$offenders" ]; then
+                portcount=$(yq e '[.services // {} | to_entries[] | select(.value.ports != null and (.value.ports | length) > 0)] | length' "$f")
+                if [ "$portcount" != "0" ]; then
+                  offenders=$(yq e '.services // {} | to_entries[] | select(.value.ports != null and (.value.ports | length) > 0) | .key' "$f")
                   echo "FAIL: $f publishes host ports on: $(echo "$offenders" | tr '\n' ' ')"
                   status=1
                 fi
