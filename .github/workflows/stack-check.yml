@@ -1,0 +1,64 @@
+name: stack-check
+
+# Reusable workflow. Each stack repo calls it with:
+#   jobs.<job_id>.uses: @l3tum/reusable-workflows/.forgejo/workflows/stack-check.yml@main
+
+on:
+  workflow_call:
+
+jobs:
+  check-stack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: YAML lint + policy checks
+        run: |
+          set -eu
+
+          status=0
+          found=0
+          for f in $(find . -path ./.git -prune -o -type f \( -name '*.yml' -o -name '*.yaml' \) -print | sort); do
+            found=1
+            echo "=== $f"
+
+            # 1) YAML lint: must parse
+            if ! yq e 'true' "$f" >/dev/null 2>/tmp/yaml.err; then
+              echo "FAIL: invalid YAML in $f:"
+              cat /tmp/yaml.err
+              exit 1
+            fi
+
+            # 2) compose policy checks (raw YAML, per file)
+            case "$f" in
+              *compose*)
+                # no direct ghcr.io image refs
+                if yq e '.services // {} | to_entries | map(.value.image // "") | .[]' "$f" | grep -E '^ghcr\.io/'; then
+                  echo "FAIL: $f references ghcr.io directly - use mirror"
+                  status=1
+                fi
+
+                # no :latest tag
+                if yq e '.services // {} | to_entries | map(.value.image // "") | .[]' "$f" | grep -E '\:latest$'; then
+                  echo "FAIL: $f references a :latest tag - use specific versions"
+                  status=1
+                fi
+
+                # no published host ports
+                offenders=$(yq e '.services // {} | to_entries | map(select(.value.ports != null and (.value.ports | length) > 0) | .key)' "$f")
+                if [ -n "$offenders" ]; then
+                  echo "FAIL: $f publishes host ports on: $(echo "$offenders" | tr '\n' ' ')"
+                  status=1
+                fi
+
+                # (disabled) full compose validation - commented out while
+                # extends isn't possible in CI; re-enable later:
+                # docker compose -f "$f" config --no-interpolate --format json >/dev/null
+                ;;
+            esac
+          done
+
+          [ "$found" -eq 1 ] || { echo "FAIL: no yaml files found"; exit 1; }
+          [ "$status" -eq 0 ] && echo "OK: all yaml files pass"
+          exit "$status"
