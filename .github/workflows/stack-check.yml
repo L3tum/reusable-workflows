@@ -63,3 +63,46 @@ jobs:
           [ "$found" -eq 1 ] || { echo "FAIL: no yaml files found"; exit 1; }
           [ "$status" -eq 0 ] && echo "OK: all yaml files pass"
           exit "$status"
+  # Scans every image referenced in any compose file:
+  #   vuln   = OS/package CVEs inside the pinned image
+  #   secret = credentials baked into the image layers
+  # Requires docker access on the runner (Trivy runs as a container).
+  scan-images:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Extract image refs from compose files
+        run: |
+          set -eu
+          for f in $(find . -path ./.git -prune -o -type f -name '*compose*' -print | sort); do
+            yq e '.services // {} | to_entries | map(.value.image // "") | .[]' "$f"
+          done | sort -u | grep -v '^$' > image-refs.txt || true
+          cat image-refs.txt
+          [ -s image-refs.txt ] || { echo "no compose images found - nothing to scan"; exit 0; }
+
+      - name: Scan images with Trivy (official container, digest-pinned)
+        run: |
+          set -eu
+          # Same pinning discipline as the compose images: tag + digest, via the pull-through cache.
+          TRIVY_IMAGE="ghcr.mortimer.website/aquasecurity/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c"
+
+          fail=0
+          while IFS= read -r img; do
+            [ -n "$img" ] || continue
+            echo "=== $img"
+            docker run --rm \
+              --network host \
+              -v "${HOME}/.cache/trivy:/root/.cache" \
+              "$TRIVY_IMAGE" image \
+                --scanners vuln,secret \
+                --severity HIGH,CRITICAL \
+                --ignore-unfixed \
+                --timeout 30m \
+                --exit-code 1 \
+                "$img" || fail=1
+          done < image-refs.txt
+
+          [ "$fail" -eq 0 ] || echo "FAIL: one or more images failed the vuln/secret scan"
+          exit "$fail"
