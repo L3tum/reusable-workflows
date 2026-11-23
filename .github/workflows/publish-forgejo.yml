@@ -38,6 +38,11 @@ on:
         required: false
         type: string
         default: ""
+      BUILD_NUMBER_TAG_PREFIX:
+        description: "If set, the image is tagged and pushed as <prefix><n>, where <n> is the next sequential build number for this image (highest existing '<prefix><digits>' tag + 1, read from the registry). In this mode the ref/RELEASE_TAG tag is not pushed."
+        required: false
+        type: string
+        default: ""
 
 jobs:
   publish_forgejo:
@@ -180,15 +185,45 @@ jobs:
         env:
           PUSH_LATEST: ${{ inputs.PUSH_LATEST }}
           PUSH: ${{ inputs.PUSH }}
+          BUILD_NUMBER_TAG_PREFIX: ${{ inputs.BUILD_NUMBER_TAG_PREFIX }}
+          CR_USER: ${{ vars.INTERNAL_DOCKER_USERNAME }}
+          CR_PASSWORD: ${{ secrets.PACKAGE_TOKEN }}
         run: |
           set -euo pipefail
 
           if [ "$PUSH" = "true" ]; then
             image="${{ steps.image.outputs.image }}"
             tag="${{ steps.image.outputs.tag }}"
-  
-            docker push "${image}:${tag}"
-  
+
+            if [ -n "$BUILD_NUMBER_TAG_PREFIX" ]; then
+              # Sequential build number per image. On Gitea 1.22 act-based
+              # runners, job outputs and github.run_number do not propagate
+              # through reusable-workflow `with:` blocks, so the registry
+              # itself is the source of truth for the sequence: highest
+              # existing '<prefix><n>' tag + 1.
+              if ! [[ "$BUILD_NUMBER_TAG_PREFIX" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]]; then
+                echo "Invalid BUILD_NUMBER_TAG_PREFIX: '$BUILD_NUMBER_TAG_PREFIX'" >&2
+                exit 1
+              fi
+              registry_host="${image%%/*}"
+              repo_path="${image#*/}"
+
+              tag_list="$(curl -fsSL -u "$CR_USER:$CR_PASSWORD" \
+                "https://${registry_host}/v2/${repo_path}/tags/list")"
+              highest="$(printf '%s\n' "$tag_list" | jq -r '.tags[]?' \
+                | grep -E "^${BUILD_NUMBER_TAG_PREFIX}[0-9]+$" \
+                | sed "s/^${BUILD_NUMBER_TAG_PREFIX}//" \
+                | sort -n | tail -n 1 || true)"
+              next=$(( ${highest:-0} + 1 ))
+              build_tag="${BUILD_NUMBER_TAG_PREFIX}${next}"
+
+              docker tag "${image}:${tag}" "${image}:${build_tag}"
+              docker push "${image}:${build_tag}"
+              echo "Published ${image}:${build_tag}"
+            else
+              docker push "${image}:${tag}"
+            fi
+
             if [ "$PUSH_LATEST" = "true" ]; then
               docker push "${image}:latest"
             else
