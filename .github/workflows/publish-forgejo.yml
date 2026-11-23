@@ -39,7 +39,7 @@ on:
         type: string
         default: ""
       BUILD_NUMBER_TAG_PREFIX:
-        description: "If set, the image is tagged and pushed as <prefix><n>, where <n> is the next sequential build number for this image (highest existing '<prefix><digits>' tag + 1, read from the registry). In this mode the ref/RELEASE_TAG tag is not pushed."
+        description: "If set, the image is tagged and pushed as <prefix>-<n>, where <n> is the next sequential build number for this image (highest existing '<prefix>-<digits>' tag + 1, read from the registry). In this mode the ref/RELEASE_TAG tag is not pushed."
         required: false
         type: string
         default: ""
@@ -200,7 +200,7 @@ jobs:
               # runners, job outputs and github.run_number do not propagate
               # through reusable-workflow `with:` blocks, so the registry
               # itself is the source of truth for the sequence: highest
-              # existing '<prefix><n>' tag + 1.
+              # existing '<prefix>-<n>' tag + 1.
               if ! [[ "$BUILD_NUMBER_TAG_PREFIX" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]]; then
                 echo "Invalid BUILD_NUMBER_TAG_PREFIX: '$BUILD_NUMBER_TAG_PREFIX'" >&2
                 exit 1
@@ -211,11 +211,11 @@ jobs:
               tag_list="$(curl -fsSL -u "$CR_USER:$CR_PASSWORD" \
                 "https://${registry_host}/v2/${repo_path}/tags/list")"
               highest="$(printf '%s\n' "$tag_list" | jq -r '.tags[]?' \
-                | grep -E "^${BUILD_NUMBER_TAG_PREFIX}[0-9]+$" \
-                | sed "s/^${BUILD_NUMBER_TAG_PREFIX}//" \
+                | grep -E "^${BUILD_NUMBER_TAG_PREFIX}-[0-9]+$" \
+                | sed "s/^${BUILD_NUMBER_TAG_PREFIX}-//" \
                 | sort -n | tail -n 1 || true)"
               next=$(( ${highest:-0} + 1 ))
-              build_tag="${BUILD_NUMBER_TAG_PREFIX}${next}"
+              build_tag="${BUILD_NUMBER_TAG_PREFIX}-${next}"
 
               docker tag "${image}:${tag}" "${image}:${build_tag}"
               docker push "${image}:${build_tag}"
